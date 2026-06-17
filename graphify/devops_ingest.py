@@ -206,6 +206,7 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
         daemonsets = []
         rolebindings = []
         clusterrolebindings = []
+        networkpolicies = []
         
         for item in items:
             kind = item.get("kind")
@@ -233,6 +234,8 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
                 rolebindings.append(item)
             elif kind == "ClusterRoleBinding":
                 clusterrolebindings.append(item)
+            elif kind == "NetworkPolicy":
+                networkpolicies.append(item)
 
         cluster_name = filename.replace('.json', '')
         cluster_id = f"k8s_cluster_{cluster_name}"
@@ -486,6 +489,71 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
                         make_node(sa_id, type="Environment", label=f"{sa_name}\\n(ServiceAccount)", file_type="ServiceAccount", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf2c2', 'weight': '900', 'color': '#FF9F1C'}, provider="kubernetes", namespace=sa_ns, size=15)
                     
                     G.add_edge(sa_id, role_id, relation="bound_to")
+
+        # Network Policies
+        for np in networkpolicies:
+            np_name = np["metadata"]["name"]
+            np_ns = np["metadata"].get("namespace", "default")
+            
+            np_id = f"np_{cluster_name}_{np_ns}_{np_name}"
+            if not G.has_node(np_id):
+                make_node(np_id, type="Environment", label=f"{np_name}\\n(NetworkPolicy)", file_type="NetworkPolicy", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf3ed', 'weight': '900', 'color': '#06D6A0'}, provider="kubernetes", namespace=np_ns, size=18)
+            
+            pod_selector = np.get("spec", {}).get("podSelector", {}).get("matchLabels", {})
+            for p in pods:
+                if p["metadata"].get("namespace", "default") != np_ns:
+                    continue
+                labels = p["metadata"].get("labels", {})
+                match = True
+                for k, v in pod_selector.items():
+                    if labels.get(k) != v:
+                        match = False
+                        break
+                if match:
+                    pod_name = p["metadata"]["name"]
+                    pod_id = f"pod_{cluster_name}_{np_ns}_{pod_name}"
+                    if G.has_node(pod_id):
+                        G.add_edge(np_id, pod_id, relation="secures_pod", dashes=True, color="#06D6A0", width=2)
+            
+            ingress = np.get("spec", {}).get("ingress", [])
+            for rule in ingress:
+                for fr in rule.get("from", []):
+                    pod_sel = fr.get("podSelector", {}).get("matchLabels", {})
+                    if pod_sel:
+                        for p in pods:
+                            if p["metadata"].get("namespace", "default") != np_ns:
+                                continue
+                            labels = p["metadata"].get("labels", {})
+                            match = True
+                            for k, v in pod_sel.items():
+                                if labels.get(k) != v:
+                                    match = False
+                                    break
+                            if match:
+                                pod_name = p["metadata"]["name"]
+                                pod_id = f"pod_{cluster_name}_{np_ns}_{pod_name}"
+                                if G.has_node(pod_id):
+                                    G.add_edge(pod_id, np_id, relation="allows_ingress", dashes=True, color="#06D6A0", width=1)
+            
+            egress = np.get("spec", {}).get("egress", [])
+            for rule in egress:
+                for to in rule.get("to", []):
+                    pod_sel = to.get("podSelector", {}).get("matchLabels", {})
+                    if pod_sel:
+                        for p in pods:
+                            if p["metadata"].get("namespace", "default") != np_ns:
+                                continue
+                            labels = p["metadata"].get("labels", {})
+                            match = True
+                            for k, v in pod_sel.items():
+                                if labels.get(k) != v:
+                                    match = False
+                                    break
+                            if match:
+                                pod_name = p["metadata"]["name"]
+                                pod_id = f"pod_{cluster_name}_{np_ns}_{pod_name}"
+                                if G.has_node(pod_id):
+                                    G.add_edge(np_id, pod_id, relation="allows_egress", dashes=True, color="#EF476F", width=1)
 
 def _compute_communities(G):
     type_to_cid = {
