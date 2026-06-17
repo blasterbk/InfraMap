@@ -204,6 +204,8 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
         deployments = []
         statefulsets = []
         daemonsets = []
+        rolebindings = []
+        clusterrolebindings = []
         
         for item in items:
             kind = item.get("kind")
@@ -227,6 +229,10 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
                 statefulsets.append(item)
             elif kind == "DaemonSet":
                 daemonsets.append(item)
+            elif kind == "RoleBinding":
+                rolebindings.append(item)
+            elif kind == "ClusterRoleBinding":
+                clusterrolebindings.append(item)
 
         cluster_name = filename.replace('.json', '')
         cluster_id = f"k8s_cluster_{cluster_name}"
@@ -421,6 +427,13 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
             
             # Only process if this Pod was added to the graph
             if G.has_node(pod_id):
+                sa_name = p.get("spec", {}).get("serviceAccountName")
+                if sa_name:
+                    sa_id = f"sa_{cluster_name}_{namespace}_{sa_name}"
+                    if not G.has_node(sa_id):
+                        make_node(sa_id, type="Environment", label=f"{sa_name}\\n(ServiceAccount)", file_type="ServiceAccount", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf2c2', 'weight': '900', 'color': '#FF9F1C'}, provider="kubernetes", namespace=namespace, size=15)
+                    G.add_edge(pod_id, sa_id, relation="uses_sa")
+
                 owners = p["metadata"].get("ownerReferences", [])
                 for owner in owners:
                     owner_kind = owner.get("kind")
@@ -446,6 +459,33 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
                     for src, tgt, edge_data in list(G.in_edges(pod_id, data=True)):
                         if edge_data.get("relation") == "selects_pod":
                             G.add_edge(src, ctrl_id, relation="targets_controller")
+
+        # RBAC: Extract Roles and RoleBindings
+        for rb in rolebindings + clusterrolebindings:
+            rb_name = rb["metadata"]["name"]
+            rb_ns = rb["metadata"].get("namespace", "default")
+            
+            role_ref = rb.get("roleRef", {})
+            role_kind = role_ref.get("kind")
+            role_name = role_ref.get("name")
+            if not role_name: continue
+            
+            role_id = f"{role_kind.lower()}_{cluster_name}_{rb_ns}_{role_name}"
+            if not G.has_node(role_id):
+                make_node(role_id, type="Environment", label=f"{role_name}\\n({role_kind})", file_type=role_kind, source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf508', 'weight': '900', 'color': '#EF476F'}, provider="kubernetes", namespace=rb_ns, size=15)
+            
+            subjects = rb.get("subjects", [])
+            if not subjects: continue
+            for sub in subjects:
+                if sub.get("kind") == "ServiceAccount":
+                    sa_name = sub.get("name")
+                    sa_ns = sub.get("namespace", rb_ns)
+                    sa_id = f"sa_{cluster_name}_{sa_ns}_{sa_name}"
+                    
+                    if not G.has_node(sa_id):
+                        make_node(sa_id, type="Environment", label=f"{sa_name}\\n(ServiceAccount)", file_type="ServiceAccount", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf2c2', 'weight': '900', 'color': '#FF9F1C'}, provider="kubernetes", namespace=sa_ns, size=15)
+                    
+                    G.add_edge(sa_id, role_id, relation="bound_to")
 
 def _compute_communities(G):
     type_to_cid = {
