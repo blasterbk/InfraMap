@@ -1,0 +1,11 @@
+;A records
+10bestthing.com.	IN	30	A	172.105.34.102	
+10bestthing.com.	IN	30	A	172.105.59.51	
+10bestthing.com.	IN	30	A	172.236.166.40	
+10bestthing.com.	IN	30	A	172.236.171.249	
+
+;TXT records
+_acme-challenge.10bestthing.com.	IN	30	TXT	"4tfjlggBFPSGqhLNgxFaVyc_dall4vF14B4wB-yMNqM"	
+_acme-challenge.10bestthing.com.	IN	30	TXT	"1zujpKdsSeI_AmDedKeIPw9tiwN3qddTHLgVMys_ur8"	
+_acme-challenge.10bestthing.com.	IN	1m	TXT	"ZqNTAB69gF9ZEZopCGtmU8OiAbxi-bcta3QgUJJLBbo"	
+

@@ -4700,6 +4700,35 @@ def main() -> None:
         out_path2.write_text(json.dumps(merged2, ensure_ascii=False), encoding="utf-8")
         print(f"Merged: {len(merged2['nodes'])} nodes, {len(merged2['edges'])} edges")
 
+    elif cmd == "devops":
+        # graphify devops <data_dir> [--k8s-only]
+        from graphify.devops_ingest import build_devops_graph
+        from graphify.export import to_html
+        import os as _os
+
+        data_dir = sys.argv[2] if len(sys.argv) > 2 else "."
+        k8s_only = "--k8s-only" in sys.argv
+
+        print(f"Ingesting DevOps data from {data_dir}...")
+        graphs = build_devops_graph(data_dir, k8s_only=k8s_only)
+        
+        for name, (G, communities, community_labels) in graphs.items():
+            print(f"DevOps graph '{name}' created with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges.")
+            out_dir = _os.path.join(data_dir, "graphify-out")
+            _os.makedirs(out_dir, exist_ok=True)
+
+            import json as _json
+            nodes_out = [{"id": n, **d} for n, d in G.nodes(data=True)]
+            edges_out = [{"from": u, "to": v, **d} for u, v, d in G.edges(data=True)]
+            json_path = _os.path.join(out_dir, f"{name}.json")
+            with open(json_path, "w", encoding="utf-8") as _f:
+                _json.dump({"nodes": nodes_out, "edges": edges_out}, _f, ensure_ascii=False, default=str)
+            print(f"JSON output: {json_path}")
+
+            html_path = _os.path.join(out_dir, f"{name}.html")
+            to_html(G, communities, html_path, community_labels=community_labels)
+            print(f"HTML output: {html_path}")
+
     elif Path(cmd).exists() or cmd in (".", "..") or cmd.startswith(("./", "../", "/", "~")):
         # User ran `graphify <path>` directly — treat as `graphify extract <path>`.
         # Common when following the PowerShell note in README (`graphify .`) or

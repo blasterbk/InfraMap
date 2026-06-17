@@ -173,8 +173,7 @@ def _viz_node_limit() -> int:
 
 
 def _html_styles() -> str:
-    return """<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-<style>
+    return """<style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #0f0f1a; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; height: 100vh; overflow: hidden; }
   #graph { flex: 1; }
@@ -272,8 +271,6 @@ function esc(s) {{
 const nodesDS = new vis.DataSet(RAW_NODES.map(n => ({{
   id: n.id, label: n.label, color: n.color, size: n.size,
   font: n.font, title: n.title,
-  shape: n.shape || 'dot',
-  icon: n.icon,
   _community: n.community, _community_name: n.community_name,
   _source_file: n.source_file, _file_type: n.file_type, _degree: n.degree,
 }})));
@@ -321,7 +318,52 @@ network.once('stabilizationIterationsDone', () => {{
 function showInfo(nodeId) {{
   const n = nodesDS.get(nodeId);
   if (!n) return;
-  const neighborIds = network.getConnectedNodes(nodeId);
+  const connectedNodes = new Set();
+  const connectedEdges = new Set();
+  const focusedNodeId = nodeId;
+  
+  // Downward traversal (Descendants)
+  const queueDown = [focusedNodeId];
+  const visitedDown = new Set([focusedNodeId]);
+  
+  while (queueDown.length > 0) {
+    const current = queueDown.shift();
+    const edges = network.getConnectedEdges(current);
+    edges.forEach(edgeId => {
+      const edge = edgesDS.get(edgeId);
+      if (edge && edge.from === current) {
+        connectedEdges.add(edgeId);
+        if (!visitedDown.has(edge.to)) {
+          visitedDown.add(edge.to);
+          queueDown.push(edge.to);
+        }
+      }
+    });
+  }
+
+  // Upward traversal (Ancestors)
+  const queueUp = [focusedNodeId];
+  const visitedUp = new Set([focusedNodeId]);
+  
+  while (queueUp.length > 0) {
+    const current = queueUp.shift();
+    const edges = network.getConnectedEdges(current);
+    edges.forEach(edgeId => {
+      const edge = edgesDS.get(edgeId);
+      if (edge && edge.to === current) {
+        connectedEdges.add(edgeId);
+        if (!visitedUp.has(edge.from)) {
+          visitedUp.add(edge.from);
+          queueUp.push(edge.from);
+        }
+      }
+    });
+  }
+
+  // Combine visited nodes
+  visitedDown.forEach(id => connectedNodes.add(id));
+  visitedUp.forEach(id => connectedNodes.add(id));
+  const neighborIds = Array.from(connectedNodes).filter(id => id !== focusedNodeId);
   const neighborItems = neighborIds.map(nid => {{
     const nb = nodesDS.get(nid);
     const color = nb ? nb.color.background : '#555';
@@ -337,108 +379,14 @@ function showInfo(nodeId) {{
   `;
 }}
 
-// Track hovered and focused nodes
-let hoveredNodeId = null;
-let focusedNodeId = null;
-
-function applyFocusState() {{
-  if (focusedNodeId === null) {{
-    // Reset all
-    const resetNodes = [];
-    nodesDS.forEach(n => {{
-      const orig = RAW_NODES.find(r => r.id === n.id);
-      if (orig) {{
-        resetNodes.push({{
-          id: n.id, 
-          color: orig.color, 
-          icon: orig.icon,
-          font: orig.font || {{color: '#ffffff'}}
-        }});
-      }}
-    }});
-    nodesDS.update(resetNodes);
-    
-    const resetEdges = [];
-    edgesDS.forEach(e => resetEdges.push({{id: e.id, hidden: false}}));
-    edgesDS.update(resetEdges);
-    return;
-  }}
-  
-  const connectedNodes = new Set();
-  const connectedEdges = new Set();
-  
-  // Downward traversal (Descendants)
-  const queueDown = [focusedNodeId];
-  const visitedDown = new Set([focusedNodeId]);
-  
-  while (queueDown.length > 0) {{
-    const current = queueDown.shift();
-    const edges = network.getConnectedEdges(current);
-    edges.forEach(edgeId => {{
-      const edge = edgesDS.get(edgeId);
-      if (edge && edge.from === current) {{
-        connectedEdges.add(edgeId);
-        if (!visitedDown.has(edge.to)) {{
-          visitedDown.add(edge.to);
-          queueDown.push(edge.to);
-        }}
-      }}
-    }});
-  }}
-
-  // Upward traversal (Ancestors)
-  const queueUp = [focusedNodeId];
-  const visitedUp = new Set([focusedNodeId]);
-  
-  while (queueUp.length > 0) {{
-    const current = queueUp.shift();
-    const edges = network.getConnectedEdges(current);
-    edges.forEach(edgeId => {{
-      const edge = edgesDS.get(edgeId);
-      if (edge && edge.to === current) {{
-        connectedEdges.add(edgeId);
-        if (!visitedUp.has(edge.from)) {{
-          visitedUp.add(edge.from);
-          queueUp.push(edge.from);
-        }}
-      }}
-    }});
-  }}
-
-  // Combine visited nodes
-  visitedDown.forEach(id => connectedNodes.add(id));
-  visitedUp.forEach(id => connectedNodes.add(id));
-  
-  const nodeUpdates = [];
-  nodesDS.forEach(n => {{
-    const isConn = connectedNodes.has(n.id);
-    const orig = RAW_NODES.find(r => r.id === n.id);
-    if (!orig) return;
-    
-    let fontColor = isConn ? '#ffffff' : 'rgba(255,255,255,0.15)';
-    let updateObj = {{ id: n.id, font: {{ color: fontColor }} }};
-    
-    if (orig.icon) {{
-      let c = orig.icon.color;
-      if (!isConn && c && c.length === 7) c = c + "26";
-      updateObj.icon = Object.assign({{}}, orig.icon, {{color: c}});
-    }} else if (orig.color) {{
-      let c = orig.color.background;
-      if (!isConn && c && c.length === 7) c = c + "26";
-      updateObj.color = {{ background: c, border: c }};
-    }}
-    
-    nodeUpdates.push(updateObj);
-  }});
-  nodesDS.update(nodeUpdates);
-  
-  const edgeUpdates = [];
-  edgesDS.forEach(e => {{
-    edgeUpdates.push({{id: e.id, hidden: !connectedEdges.has(e.id)}});
-  }});
-  edgesDS.update(edgeUpdates);
+function focusNode(nodeId) {{
+  network.focus(nodeId, {{ scale: 1.4, animation: true }});
+  network.selectNodes([nodeId]);
+  showInfo(nodeId);
 }}
 
+// Track hovered node — hover detection is more reliable than click params
+let hoveredNodeId = null;
 network.on('hoverNode', params => {{
   hoveredNodeId = params.node;
   container.style.cursor = 'pointer';
@@ -449,31 +397,17 @@ network.on('blurNode', () => {{
 }});
 container.addEventListener('click', () => {{
   if (hoveredNodeId !== null) {{
-    focusedNodeId = hoveredNodeId;
-    applyFocusState();
     showInfo(hoveredNodeId);
     network.selectNodes([hoveredNodeId]);
   }}
 }});
 network.on('click', params => {{
   if (params.nodes.length > 0) {{
-    focusedNodeId = params.nodes[0];
-    applyFocusState();
     showInfo(params.nodes[0]);
   }} else if (hoveredNodeId === null) {{
-    focusedNodeId = null;
-    applyFocusState();
     document.getElementById('info-content').innerHTML = '<span class="empty">Click a node to inspect it</span>';
   }}
 }});
-
-function focusNode(nodeId) {{
-  network.focus(nodeId, {{ scale: 1.4, animation: true }});
-  network.selectNodes([nodeId]);
-  focusedNodeId = nodeId;
-  applyFocusState();
-  showInfo(nodeId);
-}}
 
 const searchInput = document.getElementById('search');
 const searchResults = document.getElementById('search-results');
@@ -516,6 +450,21 @@ function updateSelectAllState() {{
   selectAllCb.indeterminate = hidden > 0 && hidden < total;
 }}
 
+function toggleAllCommunities(hide) {{
+  document.querySelectorAll('.legend-item').forEach(item => {{
+    hide ? item.classList.add('dimmed') : item.classList.remove('dimmed');
+  }});
+  document.querySelectorAll('.legend-cb').forEach(cb => {{
+    cb.checked = !hide;
+  }});
+  LEGEND.forEach(c => {{
+    if (hide) hiddenCommunities.add(c.cid); else hiddenCommunities.delete(c.cid);
+  }});
+  const updates = RAW_NODES.map(n => ({{ id: n.id, hidden: hide }}));
+  nodesDS.update(updates);
+  updateSelectAllState();
+}}
+
 const legendEl = document.getElementById('legend');
 LEGEND.forEach(c => {{
   const item = document.createElement('div');
@@ -549,50 +498,6 @@ LEGEND.forEach(c => {{
     cb.dispatchEvent(new Event('change'));
   }};
   legendEl.appendChild(item);
-}});
-
-// Dynamic Node Type Filters
-const sidebar = document.getElementById('sidebar');
-const typeWrap = document.createElement('div');
-typeWrap.id = 'type-filter-wrap';
-typeWrap.style.padding = '12px';
-typeWrap.style.borderBottom = '1px solid #2a2a4e';
-typeWrap.innerHTML = '<h3 style="font-size:13px;color:#aaa;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.05em;">Node Types</h3><div id="type-legend"></div>';
-sidebar.insertBefore(typeWrap, document.getElementById('legend-wrap'));
-
-const typeLegendEl = document.getElementById('type-legend');
-const uniqueTypes = [...new Set(RAW_NODES.map(n => n._file_type).filter(Boolean))].sort();
-
-uniqueTypes.forEach(type => {{
-  const count = RAW_NODES.filter(n => n._file_type === type).length;
-  const item = document.createElement('div');
-  item.className = 'legend-item';
-  const cb = document.createElement('input');
-  cb.type = 'checkbox';
-  cb.className = 'legend-cb';
-  cb.checked = true;
-  cb.addEventListener('change', (e) => {{
-    e.stopPropagation();
-    if (cb.checked) {{
-      item.classList.remove('dimmed');
-    }} else {{
-      item.classList.add('dimmed');
-    }}
-    const updates = RAW_NODES
-      .filter(n => n._file_type === type)
-      .map(n => ({{ id: n.id, hidden: !cb.checked }}));
-    nodesDS.update(updates);
-  }});
-  item.innerHTML = `
-    <span class="legend-label" style="padding-left:4px;">${{esc(type)}}</span>
-    <span class="legend-count">${{count}}</span>`;
-  item.prepend(cb);
-  item.onclick = (e) => {{
-    if (e.target === cb) return;
-    cb.checked = !cb.checked;
-    cb.dispatchEvent(new Event('change'));
-  }};
-  typeLegendEl.appendChild(item);
 }});
 </script>"""
 
@@ -867,7 +772,7 @@ def to_html(
             size = 10 + 30 * (deg / max_deg)
             # Only show label for high-degree nodes by default; others show on hover
             font_size = 12 if deg >= max_deg * 0.15 else 0
-        node_dict = {
+        vis_nodes.append({
             "id": str(node_id).replace("\n", ""),
             "label": label,
             "color": {"background": color, "border": color, "highlight": {"background": "#ffffff", "border": color}},
@@ -879,12 +784,7 @@ def to_html(
             "source_file": sanitize_label(str(data.get("source_file") or "")),
             "file_type": data.get("file_type", ""),
             "degree": deg,
-        }
-        if "shape" in data:
-            node_dict["shape"] = data["shape"]
-        if "icon" in data:
-            node_dict["icon"] = data["icon"]
-        vis_nodes.append(node_dict)
+        })
 
     # Build edges list. Restore original edge direction from _src/_tgt
     # (stashed by build.py for exactly this reason): undirected NetworkX
@@ -896,19 +796,14 @@ def to_html(
         relation = data.get("relation", "")
         true_src = data.get("_src", u)
         true_tgt = data.get("_tgt", v)
-        
-        is_traffic = relation in ("routes_to", "routes_traffic_to", "bridges_to_ns", "contains_svc")
-        base_width = 3 if is_traffic else (2 if confidence == "EXTRACTED" else 1)
-        base_color = {"color": "#00BBF9", "opacity": 1.0} if is_traffic else {"opacity": 0.7 if confidence == "EXTRACTED" else 0.35}
-        
         vis_edges.append({
             "from": str(true_src).replace("\n", ""),
             "to": str(true_tgt).replace("\n", ""),
             "label": relation,
             "title": _html.escape(f"{relation} [{confidence}]"),
             "dashes": confidence != "EXTRACTED",
-            "width": base_width,
-            "color": base_color,
+            "width": 2 if confidence == "EXTRACTED" else 1,
+            "color": {"opacity": 0.7 if confidence == "EXTRACTED" else 0.35},
             "confidence": confidence,
         })
 

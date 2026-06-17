@@ -1,0 +1,421 @@
+import os
+import csv
+import glob
+import json
+import networkx as nx
+from collections import defaultdict
+
+def parse_linode(data_dir, G, servers_by_ip):
+    linode_dir = os.path.join(data_dir, 'linode')
+    if not os.path.exists(linode_dir):
+        return
+        
+    # Support CSV files
+    linode_files = glob.glob(os.path.join(linode_dir, '*.csv'))
+    for linodes_file in linode_files:
+        with open(linodes_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f, delimiter='\t')
+            for row in reader:
+                _process_linode_row(row, G, servers_by_ip)
+                
+    # Support Excel files (.xlsx)
+    xlsx_files = glob.glob(os.path.join(linode_dir, '*.xlsx'))
+    if xlsx_files:
+        try:
+            import openpyxl
+            for xlsx_file in xlsx_files:
+                wb = openpyxl.load_workbook(xlsx_file, data_only=True)
+                ws = wb.active
+                headers = [str(cell.value).strip().lower() if cell.value else f"col_{i}" for i, cell in enumerate(ws[1])]
+                for row in ws.iter_rows(min_row=2, values_only=True):
+                    row_dict = dict(zip(headers, [str(v) if v is not None else "" for v in row]))
+                    _process_linode_row(row_dict, G, servers_by_ip)
+        except ImportError:
+            print("Warning: openpyxl is not installed. Please run `pip install openpyxl` to parse Linode.xlsx.")
+
+def _process_linode_row(row, G, servers_by_ip):
+    if not row or 'label' not in row or not row['label'].strip():
+        return
+        
+    name = row['label']
+    ips_raw = row.get('ipv4', '')
+    region = row.get('region', '')
+    tag = row.get('tags', '')
+    
+    image = row.get('image', '')
+    status = row.get('status', '')
+    instance_type = row.get('type', '')
+    vcpus = row.get('vcpus', '')
+    
+    ips = [ip.strip(' "') for ip in ips_raw.split(',') if ip.strip(' "')]
+    ip_str = ", ".join(ips)
+    
+    source_info = (
+        f"IP(s): {ip_str} | Region: {region} | Tags: {tag} | "
+        f"Image: {image} | Status: {status} | InstType: {instance_type} | vCPUs: {vcpus}"
+    )
+    
+    G.add_node(name, 
+               type="Server", 
+               ip=ip_str,
+               label=f"{name}\\n({ip_str})",
+               file_type="Linode Server",
+               source_file=source_info,
+               shape='icon',
+               icon={'face': '"Font Awesome 6 Free"', 'code': '\uf233', 'weight': '900', 'color': '#4E79A7'},
+               provider="linode")
+    
+    for ip in ips:
+        servers_by_ip[ip] = name
+    
+    if region:
+        G.add_node(region, type="Region", label=f"{region}\\n(Region)", file_type="Region", source_file="-",
+                   shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf3c5', 'weight': '900', 'color': '#F28E2B'}, provider="linode")
+        G.add_edge(name, region, relation="deployed_in")
+    
+    if tag:
+        G.add_node(tag, type="Environment", label=f"{tag}\\n(Environment)", file_type="Environment", source_file="-",
+                   shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf02b', 'weight': '900', 'color': '#E15759'}, provider="linode")
+        G.add_edge(name, tag, relation="has_tag")
+
+def parse_bunny(data_dir, G, servers_by_ip):
+    bunny_dir = os.path.join(data_dir, 'Bunny')
+    if not os.path.exists(bunny_dir):
+        return
+        
+    bind_files = glob.glob(os.path.join(bunny_dir, '*.bind'))
+    
+    for bind_file in bind_files:
+        filename = os.path.basename(bind_file)
+        name_parts = filename.split('.')
+        if len(name_parts) >= 4 and name_parts[-1] == 'bind' and '-' in name_parts[-2]:
+            main_domain = ".".join(name_parts[:-2])
+        else:
+            main_domain = ".".join(name_parts[:-1]) # Fallback
+            
+        G.add_node(main_domain, type="MainDomain", label=f"{main_domain}\\n(Main Domain)", file_type="Bunny MainDomain", source_file=f"Zone File: {filename}",
+                   shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf0ac', 'weight': '900', 'color': '#76B7B2'}, provider=f"bunny_{main_domain}")
+
+        domain_ips = defaultdict(list)
+        with open(bind_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith(';'):
+                    continue
+                
+                line_parts = line.split()
+                if len(line_parts) >= 5 and line_parts[3] == 'A':
+                    domain = line_parts[0].rstrip('.')
+                    target_ip = line_parts[4]
+                    if target_ip not in domain_ips[domain]:
+                        domain_ips[domain].append(target_ip)
+                        
+        for domain, ips in domain_ips.items():
+            is_main = (domain == main_domain)
+            node_type = "MainDomain" if is_main else "SubDomain"
+            
+            ip_str = ", ".join(ips)
+            label_ip_str = ip_str if len(ips) <= 2 else f"{ips[0]}, ... (+{len(ips)-1})"
+            
+            has_valid_target = False
+            for target_ip in ips:
+                if target_ip in servers_by_ip:
+                    linode_server = servers_by_ip[target_ip]
+                    G.add_edge(domain, linode_server, relation="routes_traffic_to")
+                    has_valid_target = True
+            
+            color = '#76B7B2' if is_main else '#59A14F'
+            
+            is_orphaned = not has_valid_target
+            if is_orphaned:
+                color = '#ff4444' # RED!
+                label = f"⚠️ {domain}\\n(ORPHANED)"
+            else:
+                label = f"{domain}\\n({label_ip_str})"
+            
+            G.add_node(domain, 
+                       type=node_type, 
+                       ip=ip_str,
+                       label=label,
+                       color=color, # Override color
+                       file_type=f"Bunny {node_type}",
+                       source_file=f"Target IPs: {ip_str} | Zone: {main_domain}",
+                       shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf0ac', 'weight': '900', 'color': color},
+                       provider=f"bunny_{main_domain}")
+            
+            if not is_main:
+                G.add_edge(domain, main_domain, relation="subdomain_of")
+
+def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
+    k8s_dir = os.path.join(data_dir, "kubernetes")
+    if not os.path.exists(k8s_dir):
+        return
+        
+    STANDARD_NS_COLORS = {
+        "kube-system": "#9E9E9E",
+        "default": "#8AC926",
+        "monitoring": "#1982C4",
+        "production": "#FF595E",
+        "staging": "#FFCA3A",
+    }
+    
+    COLORS = ["#6A4C93", "#F15BB5", "#00F5D4", "#9B5DE5", "#FEE440", "#00BBF9"]
+    ns_colors = {}
+    def get_ns_color(ns):
+        if ns in STANDARD_NS_COLORS:
+            return STANDARD_NS_COLORS[ns]
+        if ns not in ns_colors:
+            ns_colors[ns] = COLORS[len(ns_colors) % len(COLORS)]
+        return ns_colors[ns]
+
+    CLUSTER_OFFSETS = [
+        (-1800, 0),
+        (1800, 0),
+        (0, 1800),
+        (0, -1800),
+    ]
+
+    cluster_files = sorted([f for f in os.listdir(k8s_dir) if f.endswith(".json")])
+    if cluster_filename:
+        cluster_files = [f for f in cluster_files if f == cluster_filename]
+
+    for cluster_index, filename in enumerate(cluster_files):
+            
+        filepath = os.path.join(k8s_dir, filename)
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except Exception as e:
+            print(f"Error parsing {filepath}: {e}")
+            continue
+            
+        items = data.get("items", [])
+        if not items:
+            continue
+            
+        nodes = []
+        services = []
+        ingresses = []
+        pods = []
+        pvcs = []
+        configmaps = []
+        secrets = []
+        
+        for item in items:
+            kind = item.get("kind")
+            if kind == "Node":
+                nodes.append(item)
+            elif kind == "Service":
+                services.append(item)
+            elif kind == "Ingress":
+                ingresses.append(item)
+            elif kind == "Pod":
+                pods.append(item)
+            elif kind == "PersistentVolumeClaim":
+                pvcs.append(item)
+            elif kind == "ConfigMap":
+                configmaps.append(item)
+            elif kind == "Secret":
+                secrets.append(item)
+
+        cluster_name = filename.replace('.json', '')
+        cluster_id = f"k8s_cluster_{cluster_name}"
+        cx, cy = CLUSTER_OFFSETS[cluster_index % len(CLUSTER_OFFSETS)]
+
+        def make_node(nid, **kwargs):
+            kwargs["cluster_group"] = cluster_index
+            kwargs["cluster_x"] = cx + (hash(nid) % 800 - 400)
+            kwargs["cluster_y"] = cy + (hash(nid + "y") % 800 - 400)
+            G.add_node(nid, **kwargs)
+
+        make_node(cluster_id, type="MainDomain", label=f"K8s Cluster\\n({cluster_name})", file_type="K8s Cluster", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf6ff', 'weight': '900', 'color': '#06D6A0'}, provider="kubernetes", size=25)
+
+        namespaces = set()
+
+        for s in services:
+            name = s["metadata"]["name"]
+            namespace = s["metadata"].get("namespace", "default")
+            namespaces.add(namespace)
+            selector = s.get("spec", {}).get("selector", {})
+            
+            svc_id = f"svc_{cluster_name}_{namespace}_{name}"
+            make_node(svc_id, type="Region", label=f"{name}\\n(Service)", file_type="K8s Service", source_file=f"Namespace: {namespace}", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf085', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=15)
+            
+            spec = s.get("spec", {})
+            if spec.get("type") == "ExternalName":
+                ext = spec.get("externalName")
+                if ext:
+                    parts = ext.split('.')
+                    if len(parts) >= 2:
+                        target_svc = parts[0]
+                        target_ns = parts[1]
+                        
+                        target_ns_id = f"ns_{cluster_name}_{target_ns}"
+                        if not G.has_node(target_ns_id):
+                            make_node(target_ns_id, type="SubDomain", label=f"{target_ns}\\n(Namespace)", file_type="K8s Namespace", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf07b', 'weight': '900', 'color': get_ns_color(target_ns)}, provider="kubernetes", namespace=target_ns, size=20)
+                            
+                        target_svc_id = f"svc_{cluster_name}_{target_ns}_{target_svc}"
+                        G.add_edge(svc_id, target_ns_id, relation="bridges_to_ns")
+                        G.add_edge(target_ns_id, target_svc_id, relation="contains_svc")
+            
+            svc_images = set()
+            svc_pvcs = set()
+            svc_cms = set()
+            svc_secrets = set()
+            
+            if selector:
+                for p in pods:
+                    if p["metadata"].get("namespace", "default") != namespace:
+                        continue
+                    labels = p["metadata"].get("labels", {})
+                    match = True
+                    for k, v in selector.items():
+                        if labels.get(k) != v:
+                            match = False
+                            break
+                    if match:
+                        containers = p.get("spec", {}).get("containers", [])
+                        for c in containers:
+                            img = c.get("image")
+                            if img:
+                                svc_images.add(img)
+                                
+                        volumes = p.get("spec", {}).get("volumes", [])
+                        for v in volumes:
+                            if "persistentVolumeClaim" in v:
+                                claim_name = v["persistentVolumeClaim"].get("claimName")
+                                if claim_name:
+                                    svc_pvcs.add(claim_name)
+                            if "configMap" in v:
+                                cm_name = v["configMap"].get("name")
+                                if cm_name:
+                                    svc_cms.add(cm_name)
+                            if "secret" in v:
+                                sec_name = v["secret"].get("secretName")
+                                if sec_name:
+                                    svc_secrets.add(sec_name)
+            
+            for img in svc_images:
+                img_id = f"img_{cluster_name}_{img}"
+                if not G.has_node(img_id):
+                    make_node(img_id, type="Environment", label=f"{img}\\n(Docker Image)", file_type="Docker Image", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Brands"', 'code': '\uf395', 'weight': '400', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                G.add_edge(svc_id, img_id, relation="runs_image")
+                
+            for pvc in svc_pvcs:
+                pvc_id = f"pvc_{cluster_name}_{namespace}_{pvc}"
+                if not G.has_node(pvc_id):
+                    make_node(pvc_id, type="Environment", label=f"{pvc}\\n(PVC)", file_type="PVC", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf1c0', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=15)
+                G.add_edge(svc_id, pvc_id, relation="mounts_pvc")
+            
+            for cm in svc_cms:
+                cm_id = f"cm_{cluster_name}_{namespace}_{cm}"
+                if not G.has_node(cm_id):
+                    make_node(cm_id, type="Environment", label=f"{cm}\\n(ConfigMap)", file_type="ConfigMap", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf013', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                G.add_edge(svc_id, cm_id, relation="mounts_cm")
+                
+            for sec in svc_secrets:
+                sec_id = f"sec_{cluster_name}_{namespace}_{sec}"
+                if not G.has_node(sec_id):
+                    make_node(sec_id, type="Environment", label=f"{sec}\\n(Secret)", file_type="Secret", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf084', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                G.add_edge(svc_id, sec_id, relation="mounts_secret")
+
+        for i in ingresses:
+            name = i["metadata"]["name"]
+            namespace = i["metadata"].get("namespace", "default")
+            namespaces.add(namespace)
+            
+            rules = i.get("spec", {}).get("rules", [])
+            for r in rules:
+                host = r.get("host")
+                if not host:
+                    continue
+                
+                ns_id = f"ns_{cluster_name}_{namespace}"
+                if not G.has_node(ns_id):
+                    make_node(ns_id, type="SubDomain", label=f"{namespace}\\n(Namespace)", file_type="K8s Namespace", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf07b', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=20)
+                    G.add_edge(cluster_id, ns_id, relation="contains_ns")
+
+                host_id = f"domain_{cluster_name}_{host}"
+                if not G.has_node(host_id):
+                    make_node(host_id, type="MainDomain", label=f"{host}\\n(Domain)", file_type="Domain", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf0ac', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=15)
+                
+                G.add_edge(ns_id, host_id, relation="hosts_domain")
+                
+                paths = r.get("http", {}).get("paths", [])
+                for p in paths:
+                    backend_svc = p.get("backend", {}).get("service", {}).get("name")
+                    if backend_svc:
+                        svc_id = f"svc_{cluster_name}_{namespace}_{backend_svc}"
+                        if G.has_node(svc_id):
+                            G.add_edge(host_id, svc_id, relation="routes_to")
+
+
+def _compute_communities(G):
+    type_to_cid = {
+        "Server": 0,
+        "Region": 1,
+        "Environment": 2,
+        "MainDomain": 3,
+        "SubDomain": 4,
+    }
+    
+    community_labels = {cid: label for label, cid in type_to_cid.items()}
+    communities = defaultdict(list)
+    namespace_to_cid = {}
+    
+    for node_id, data in G.nodes(data=True):
+        ns = data.get("namespace")
+        if ns:
+            if ns not in namespace_to_cid:
+                cid = len(type_to_cid) + len(namespace_to_cid) + 100
+                namespace_to_cid[ns] = cid
+                community_labels[cid] = f"NS: {ns}"
+            cid = namespace_to_cid[ns]
+        else:
+            ntype = data.get("type", "Unknown")
+            if ntype not in type_to_cid:
+                cid = len(type_to_cid)
+                type_to_cid[ntype] = cid
+                community_labels[cid] = ntype
+            else:
+                cid = type_to_cid[ntype]
+        communities[cid].append(node_id)
+        
+    G.graph["hyperedges"] = []
+    return dict(communities), community_labels
+
+
+def build_devops_graph(data_dir: str, k8s_only: bool = False):
+    graphs = {}
+    
+    k8s_dir = os.path.join(data_dir, "kubernetes")
+    cluster_files = []
+    if os.path.exists(k8s_dir):
+        cluster_files = sorted([f for f in os.listdir(k8s_dir) if f.endswith(".json")])
+        
+    if cluster_files:
+        for filename in cluster_files:
+            cluster_name = filename.replace('.json', '')
+            graph_name = f"graph_{cluster_name}"
+            
+            G = nx.DiGraph()
+            servers_by_ip = {}
+            if not k8s_only:
+                parse_linode(data_dir, G, servers_by_ip)
+                parse_bunny(data_dir, G, servers_by_ip)
+            
+            parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=filename)
+            
+            communities, community_labels = _compute_communities(G)
+            graphs[graph_name] = (G, communities, community_labels)
+    else:
+        G = nx.DiGraph()
+        servers_by_ip = {}
+        if not k8s_only:
+            parse_linode(data_dir, G, servers_by_ip)
+            parse_bunny(data_dir, G, servers_by_ip)
+            
+        communities, community_labels = _compute_communities(G)
+        graphs["graph"] = (G, communities, community_labels)
+        
+    return graphs

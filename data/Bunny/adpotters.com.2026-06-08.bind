@@ -1,0 +1,49 @@
+;TXT records
+adpotters.com.	IN	1m	TXT	"google-site-verification=56OIQbUVatYOQt3IYD6Uxo67c19bnxw21er_NC9p-II
+txt"	
+_acme-challenge.adpotters.com.	IN	1m	TXT	"SsFRPiVN3elcgRvuG3D34EOk3gsGT7OfYXdoNPPHAck"	
+_acme-challenge.adpotters.com.	IN	1m	TXT	"QVEDPeEaYU0GxQA0bC82kKD9VohfGE54vl60iS0zmao"	
+adpotters.com.	IN	30	TXT	"google-site-verification=Gixm-HM6aj3fWyDEOZI1zErGqttMGnePfyKZ0bv3dC4"	
+_acme-challenge.adsense.adpotters.com.	IN	1m	TXT	"hFL5zG-o-smTSLj1tTynv0-eQwWXoULceyR9w1FDNbc"	
+_acme-challenge.api-ms.adpotters.com.	IN	30	TXT	"jQkeav0r-Yaisqx4zJBpavAWtf3c7rIHvEY2FV2liw0"	
+productdb-2.adpotters.com.	IN	1m	TXT	"replicaSet=productdb-2-rs"	
+adpotters.com.	IN	30	TXT	"v=spf1 include:_spf.google.com ~all"	
+
+;MX records
+adpotters.com.	IN	1h	MX	1	aspmx.l.google.com.	
+adpotters.com.	IN	1h	MX	5	alt1.aspmx.l.google.com.	
+adpotters.com.	IN	1h	MX	5	alt2.aspmx.l.google.com.	
+adpotters.com.	IN	1h	MX	10	alt3.aspmx.l.google.com.	
+adpotters.com.	IN	1h	MX	10	alt4.aspmx.l.google.com.	
+
+;A records
+adpotters.com.	IN	1m	A	192.46.211.139	
+adsense.adpotters.com.	IN	1m	A	172.105.55.185	
+adsense.adpotters.com.	IN	1m	A	192.46.210.131	
+cms.adpotters.com.	IN	1m	A	172.105.55.185	
+cms.adpotters.com.	IN	1m	A	192.46.210.131	
+flux.adpotters.com.	IN	1m	A	172.105.55.185	
+backendflux.adpotters.com.	IN	1m	A	172.105.55.185	
+flux.adpotters.com.	IN	1m	A	192.46.210.131	
+backendflux.adpotters.com.	IN	1m	A	192.46.210.131	
+cmstest.adpotters.com.	IN	1m	A	172.236.161.141	
+api-ms.adpotters.com.	IN	30	A	172.236.171.180	
+api-ms.adpotters.com.	IN	30	A	172.236.171.174	
+afsmonitoring-backend.adpotters.com.	IN	30	A	172.232.103.229	
+adpotters.com.	IN	1m	A	172.105.42.222	
+www.adpotters.com.	IN	30	A	172.105.42.222	
+adsensetest.adpotters.com.	IN	1m	A	172.236.161.141	
+flux-test.adpotters.com.	IN	1m	A	172.105.34.144	
+gclid-conversion.adpotters.com.	IN	1m	A	172.235.17.117	
+backendflux-test.adpotters.com.	IN	1m	A	172.105.47.251	
+adpotters.com.	IN	1m	A	172.236.164.80	
+www.adpotters.com.	IN	30	A	172.236.164.80	
+productdb-1.adpotters.com.	IN	1m	A	172.236.187.192	
+productdb-2.adpotters.com.	IN	1m	A	172.236.177.21	
+productdb-3.adpotters.com.	IN	1m	A	172.236.172.196	
+
+;SRV records
+_mongodb._tcp.productdb-2.adpotters.com.	IN	1m	SRV	0	0	27017	productdb-1.adpotters.com.	
+_mongodb._tcp.productdb-2.adpotters.com.	IN	1m	SRV	0	0	27017	productdb-2.adpotters.com.	
+_mongodb._tcp.productdb-2.adpotters.com.	IN	1m	SRV	0	0	27017	productdb-3.adpotters.com.	
+

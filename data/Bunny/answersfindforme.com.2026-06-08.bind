@@ -1,0 +1,21 @@
+;TXT records
+_acme-challenge.answersfindforme.com.	IN	1m	TXT	"KvYU0T0iG41LGiAiDcBFRdCkP-5pFgjMSUyO22KlQt4"	
+_acme-challenge.answersfindforme.com.	IN	1m	TXT	"MgfdaU0miGxRsDtIqHmvBIRAll2cjOUr4l_l_7usLf4"	
+
+;A records
+dashboard.answersfindforme.com.	IN	30	A	172.232.103.229	
+discover.answersfindforme.com.	IN	30	A	172.232.103.229	
+answersfindforme.com.	IN	30	A	172.236.176.85	
+answersfindforme.com.	IN	30	A	172.236.176.109	
+*.answersfindforme.com.	IN	1m	A	172.236.176.109	
+*.answersfindforme.com.	IN	1m	A	172.236.176.85	
+test.answersfindforme.com.	IN	1m	A	172.232.103.229	
+origin.answersfindforme.com.	IN	1m	A	172.232.103.229	
+
+;MX records
+answersfindforme.com.	IN	1h	MX	1	aspmx.l.google.com.	
+answersfindforme.com.	IN	1h	MX	5	alt1.aspmx.l.google.com.	
+answersfindforme.com.	IN	1h	MX	5	alt2.aspmx.l.google.com.	
+answersfindforme.com.	IN	1h	MX	10	alt3.aspmx.l.google.com.	
+answersfindforme.com.	IN	1h	MX	10	alt4.aspmx.l.google.com.	
+
