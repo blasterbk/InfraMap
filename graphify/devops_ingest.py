@@ -201,6 +201,10 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
         configmaps = []
         secrets = []
         
+        deployments = []
+        statefulsets = []
+        daemonsets = []
+        
         for item in items:
             kind = item.get("kind")
             if kind == "Node":
@@ -217,6 +221,12 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
                 configmaps.append(item)
             elif kind == "Secret":
                 secrets.append(item)
+            elif kind == "Deployment":
+                deployments.append(item)
+            elif kind == "StatefulSet":
+                statefulsets.append(item)
+            elif kind == "DaemonSet":
+                daemonsets.append(item)
 
         cluster_name = filename.replace('.json', '')
         cluster_id = f"k8s_cluster_{cluster_name}"
@@ -339,6 +349,103 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
                         if G.has_node(svc_id):
                             G.add_edge(host_id, svc_id, relation="routes_to")
 
+        for c_list, kind_name, icon, color in [
+            (deployments, "Deployment", '\uf0e8', "#F15BB5"),
+            (statefulsets, "StatefulSet", '\uf1c0', "#FEE440"),
+            (daemonsets, "DaemonSet", '\uf233', "#9B5DE5")
+        ]:
+            for c in c_list:
+                name = c["metadata"]["name"]
+                namespace = c["metadata"].get("namespace", "default")
+                
+                ctrl_id = f"{kind_name.lower()}_{cluster_name}_{namespace}_{name}"
+                make_node(ctrl_id, type="Region", label=f"{name}\\n({kind_name})", file_type=f"K8s {kind_name}", source_file=f"Namespace: {namespace}", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': icon, 'weight': '900', 'color': color}, provider="kubernetes", namespace=namespace, size=18)
+                
+                selector = c.get("spec", {}).get("selector", {}).get("matchLabels", {})
+                if selector:
+                    for p in pods:
+                        if p["metadata"].get("namespace", "default") != namespace:
+                            continue
+                        labels = p["metadata"].get("labels", {})
+                        match = True
+                        for k, v in selector.items():
+                            if labels.get(k) != v:
+                                match = False
+                                break
+                        if match:
+                            pod_name = p["metadata"]["name"]
+                            pod_id = f"pod_{cluster_name}_{namespace}_{pod_name}"
+                            is_new = not G.has_node(pod_id)
+                            if is_new:
+                                make_node(pod_id, type="Region", label=f"{pod_name}\\n(Pod)", file_type="K8s Pod", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf1b2', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=12)
+                                
+                                containers = p.get("spec", {}).get("containers", [])
+                                for ctr in containers:
+                                    img = ctr.get("image")
+                                    if img:
+                                        img_id = f"img_{cluster_name}_{img}"
+                                        if not G.has_node(img_id):
+                                            make_node(img_id, type="Environment", label=f"{img}\\n(Docker Image)", file_type="Docker Image", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Brands"', 'code': '\uf395', 'weight': '400', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                                        G.add_edge(pod_id, img_id, relation="runs_image")
+                                        
+                                volumes = p.get("spec", {}).get("volumes", [])
+                                for v in volumes:
+                                    if "persistentVolumeClaim" in v:
+                                        claim_name = v["persistentVolumeClaim"].get("claimName")
+                                        if claim_name:
+                                            pvc_id = f"pvc_{cluster_name}_{namespace}_{claim_name}"
+                                            if not G.has_node(pvc_id):
+                                                make_node(pvc_id, type="Environment", label=f"{claim_name}\\n(PVC)", file_type="PVC", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf1c0', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=15)
+                                            G.add_edge(pod_id, pvc_id, relation="mounts_pvc")
+                                    if "configMap" in v:
+                                        cm_name = v["configMap"].get("name")
+                                        if cm_name:
+                                            cm_id = f"cm_{cluster_name}_{namespace}_{cm_name}"
+                                            if not G.has_node(cm_id):
+                                                make_node(cm_id, type="Environment", label=f"{cm_name}\\n(ConfigMap)", file_type="ConfigMap", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf013', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                                            G.add_edge(pod_id, cm_id, relation="mounts_cm")
+                                    if "secret" in v:
+                                        sec_name = v["secret"].get("secretName")
+                                        if sec_name:
+                                            sec_id = f"sec_{cluster_name}_{namespace}_{sec_name}"
+                                            if not G.has_node(sec_id):
+                                                make_node(sec_id, type="Environment", label=f"{sec_name}\\n(Secret)", file_type="Secret", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf084', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                                            G.add_edge(pod_id, sec_id, relation="mounts_secret")
+                            G.add_edge(ctrl_id, pod_id, relation="manages")
+
+        # Fallback: Extract controllers directly from Pod ownerReferences (handles partial JSON dumps)
+        for p in pods:
+            pod_name = p["metadata"]["name"]
+            namespace = p["metadata"].get("namespace", "default")
+            pod_id = f"pod_{cluster_name}_{namespace}_{pod_name}"
+            
+            # Only process if this Pod was added to the graph
+            if G.has_node(pod_id):
+                owners = p["metadata"].get("ownerReferences", [])
+                for owner in owners:
+                    owner_kind = owner.get("kind")
+                    owner_name = owner.get("name")
+                    if not owner_kind or not owner_name: continue
+                    
+                    icon = '\uf0e8'
+                    color = "#F15BB5"
+                    if owner_kind == "StatefulSet":
+                        icon = '\uf1c0'; color = "#FEE440"
+                    elif owner_kind == "DaemonSet":
+                        icon = '\uf233'; color = "#9B5DE5"
+                    elif owner_kind == "Job":
+                        icon = '\uf013'; color = "#3A86FF"
+                    
+                    ctrl_id = f"{owner_kind.lower()}_{cluster_name}_{namespace}_{owner_name}"
+                    if not G.has_node(ctrl_id):
+                        make_node(ctrl_id, type="Region", label=f"{owner_name}\\n({owner_kind})", file_type=f"K8s {owner_kind}", source_file=f"Namespace: {namespace}", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': icon, 'weight': '900', 'color': color}, provider="kubernetes", namespace=namespace, size=18)
+                    
+                    G.add_edge(ctrl_id, pod_id, relation="manages")
+                    
+                    # Backlink so tracing downwards from a Service reaches the Controller
+                    for src, tgt, edge_data in list(G.in_edges(pod_id, data=True)):
+                        if edge_data.get("relation") == "selects_pod":
+                            G.add_edge(src, ctrl_id, relation="targets_controller")
 
 def _compute_communities(G):
     type_to_cid = {
