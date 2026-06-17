@@ -335,6 +335,58 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
                                     if not G.has_node(sec_id):
                                         make_node(sec_id, type="Environment", label=f"{sec_name}\\n(Secret)", file_type="Secret", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf084', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
                                     G.add_edge(pod_id, sec_id, relation="mounts_secret")
+                            if "projected" in v:
+                                for src in v.get("projected", {}).get("sources", []):
+                                    if "configMap" in src:
+                                        cm_name = src["configMap"].get("name")
+                                        if cm_name:
+                                            cm_id = f"cm_{cluster_name}_{namespace}_{cm_name}"
+                                            if not G.has_node(cm_id):
+                                                make_node(cm_id, type="Environment", label=f"{cm_name}\\n(ConfigMap)", file_type="ConfigMap", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf013', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                                            G.add_edge(pod_id, cm_id, relation="mounts_cm")
+                                    if "secret" in src:
+                                        sec_name = src["secret"].get("name")
+                                        if sec_name:
+                                            sec_id = f"sec_{cluster_name}_{namespace}_{sec_name}"
+                                            if not G.has_node(sec_id):
+                                                make_node(sec_id, type="Environment", label=f"{sec_name}\\n(Secret)", file_type="Secret", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf084', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                                            G.add_edge(pod_id, sec_id, relation="mounts_secret")
+                        
+                        for c in containers:
+                            env_from = c.get("envFrom", [])
+                            for ef in env_from:
+                                if "configMapRef" in ef:
+                                    cm_name = ef["configMapRef"].get("name")
+                                    if cm_name:
+                                        cm_id = f"cm_{cluster_name}_{namespace}_{cm_name}"
+                                        if not G.has_node(cm_id):
+                                            make_node(cm_id, type="Environment", label=f"{cm_name}\\n(ConfigMap)", file_type="ConfigMap", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf013', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                                        G.add_edge(pod_id, cm_id, relation="uses_env_cm")
+                                if "secretRef" in ef:
+                                    sec_name = ef["secretRef"].get("name")
+                                    if sec_name:
+                                        sec_id = f"sec_{cluster_name}_{namespace}_{sec_name}"
+                                        if not G.has_node(sec_id):
+                                            make_node(sec_id, type="Environment", label=f"{sec_name}\\n(Secret)", file_type="Secret", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf084', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                                        G.add_edge(pod_id, sec_id, relation="uses_env_secret")
+                                        
+                            env = c.get("env", [])
+                            for ev in env:
+                                value_from = ev.get("valueFrom", {})
+                                if "configMapKeyRef" in value_from:
+                                    cm_name = value_from["configMapKeyRef"].get("name")
+                                    if cm_name:
+                                        cm_id = f"cm_{cluster_name}_{namespace}_{cm_name}"
+                                        if not G.has_node(cm_id):
+                                            make_node(cm_id, type="Environment", label=f"{cm_name}\\n(ConfigMap)", file_type="ConfigMap", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf013', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                                        G.add_edge(pod_id, cm_id, relation="uses_env_cm")
+                                if "secretKeyRef" in value_from:
+                                    sec_name = value_from["secretKeyRef"].get("name")
+                                    if sec_name:
+                                        sec_id = f"sec_{cluster_name}_{namespace}_{sec_name}"
+                                        if not G.has_node(sec_id):
+                                            make_node(sec_id, type="Environment", label=f"{sec_name}\\n(Secret)", file_type="Secret", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf084', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                                        G.add_edge(pod_id, sec_id, relation="uses_env_secret")
 
         for i in ingresses:
             name = i["metadata"]["name"]
@@ -428,6 +480,42 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
                                             if not G.has_node(sec_id):
                                                 make_node(sec_id, type="Environment", label=f"{sec_name}\\n(Secret)", file_type="Secret", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf084', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
                                             G.add_edge(pod_id, sec_id, relation="mounts_secret")
+
+                                for c in containers:
+                                    env_from = c.get("envFrom", [])
+                                    for ef in env_from:
+                                        if "configMapRef" in ef:
+                                            cm_name = ef["configMapRef"].get("name")
+                                            if cm_name:
+                                                cm_id = f"cm_{cluster_name}_{namespace}_{cm_name}"
+                                                if not G.has_node(cm_id):
+                                                    make_node(cm_id, type="Environment", label=f"{cm_name}\\n(ConfigMap)", file_type="ConfigMap", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf013', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                                                G.add_edge(pod_id, cm_id, relation="uses_env_cm")
+                                        if "secretRef" in ef:
+                                            sec_name = ef["secretRef"].get("name")
+                                            if sec_name:
+                                                sec_id = f"sec_{cluster_name}_{namespace}_{sec_name}"
+                                                if not G.has_node(sec_id):
+                                                    make_node(sec_id, type="Environment", label=f"{sec_name}\\n(Secret)", file_type="Secret", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf084', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                                                G.add_edge(pod_id, sec_id, relation="uses_env_secret")
+                                                
+                                    env = c.get("env", [])
+                                    for ev in env:
+                                        value_from = ev.get("valueFrom", {})
+                                        if "configMapKeyRef" in value_from:
+                                            cm_name = value_from["configMapKeyRef"].get("name")
+                                            if cm_name:
+                                                cm_id = f"cm_{cluster_name}_{namespace}_{cm_name}"
+                                                if not G.has_node(cm_id):
+                                                    make_node(cm_id, type="Environment", label=f"{cm_name}\\n(ConfigMap)", file_type="ConfigMap", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf013', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                                                G.add_edge(pod_id, cm_id, relation="uses_env_cm")
+                                        if "secretKeyRef" in value_from:
+                                            sec_name = value_from["secretKeyRef"].get("name")
+                                            if sec_name:
+                                                sec_id = f"sec_{cluster_name}_{namespace}_{sec_name}"
+                                                if not G.has_node(sec_id):
+                                                    make_node(sec_id, type="Environment", label=f"{sec_name}\\n(Secret)", file_type="Secret", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf084', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                                                G.add_edge(pod_id, sec_id, relation="uses_env_secret")
                             G.add_edge(ctrl_id, pod_id, relation="manages")
 
         # Fallback: Extract controllers directly from Pod ownerReferences (handles partial JSON dumps)
@@ -451,6 +539,15 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
                     if not G.has_node(n_id):
                         make_node(n_id, type="Server", label=f"{node_name}\\n(Server Node)", file_type="K8s Node", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf233', 'weight': '900', 'color': '#118AB2'}, provider="kubernetes", namespace="system", size=25)
                     G.add_edge(pod_id, n_id, relation="scheduled_on")
+
+                image_pull_secrets = p.get("spec", {}).get("imagePullSecrets", [])
+                for ips in image_pull_secrets:
+                    sec_name = ips.get("name")
+                    if sec_name:
+                        sec_id = f"sec_{cluster_name}_{namespace}_{sec_name}"
+                        if not G.has_node(sec_id):
+                            make_node(sec_id, type="Environment", label=f"{sec_name}\\n(Secret)", file_type="Secret", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf084', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                        G.add_edge(pod_id, sec_id, relation="pulls_image_with_secret")
 
                 owners = p["metadata"].get("ownerReferences", [])
                 for owner in owners:
