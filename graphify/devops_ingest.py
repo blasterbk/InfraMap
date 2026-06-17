@@ -241,6 +241,7 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
         cluster_id = f"k8s_cluster_{cluster_name}"
         cx, cy = CLUSTER_OFFSETS[cluster_index % len(CLUSTER_OFFSETS)]
 
+
         def make_node(nid, **kwargs):
             kwargs["cluster_group"] = cluster_index
             kwargs["cluster_x"] = cx + (hash(nid) % 800 - 400)
@@ -248,6 +249,13 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
             G.add_node(nid, **kwargs)
 
         make_node(cluster_id, type="MainDomain", label=f"K8s Cluster\\n({cluster_name})", file_type="K8s Cluster", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf6ff', 'weight': '900', 'color': '#06D6A0'}, provider="kubernetes", size=25)
+
+        # Physical Infrastructure: Kubernetes Nodes
+        for n in nodes:
+            n_name = n["metadata"]["name"]
+            n_id = f"node_{cluster_name}_{n_name}"
+            if not G.has_node(n_id):
+                make_node(n_id, type="Server", label=f"{n_name}\\n(Server Node)", file_type="K8s Node", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf233', 'weight': '900', 'color': '#118AB2'}, provider="kubernetes", namespace="system", size=25)
 
         namespaces = set()
 
@@ -436,6 +444,13 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
                     if not G.has_node(sa_id):
                         make_node(sa_id, type="Environment", label=f"{sa_name}\\n(ServiceAccount)", file_type="ServiceAccount", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf2c2', 'weight': '900', 'color': '#FF9F1C'}, provider="kubernetes", namespace=namespace, size=15)
                     G.add_edge(pod_id, sa_id, relation="uses_sa")
+
+                node_name = p.get("spec", {}).get("nodeName")
+                if node_name:
+                    n_id = f"node_{cluster_name}_{node_name}"
+                    if not G.has_node(n_id):
+                        make_node(n_id, type="Server", label=f"{node_name}\\n(Server Node)", file_type="K8s Node", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf233', 'weight': '900', 'color': '#118AB2'}, provider="kubernetes", namespace="system", size=25)
+                    G.add_edge(pod_id, n_id, relation="scheduled_on")
 
                 owners = p["metadata"].get("ownerReferences", [])
                 for owner in owners:
