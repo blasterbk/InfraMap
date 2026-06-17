@@ -258,11 +258,6 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
                         G.add_edge(svc_id, target_ns_id, relation="bridges_to_ns")
                         G.add_edge(target_ns_id, target_svc_id, relation="contains_svc")
             
-            svc_images = set()
-            svc_pvcs = set()
-            svc_cms = set()
-            svc_secrets = set()
-            
             if selector:
                 for p in pods:
                     if p["metadata"].get("namespace", "default") != namespace:
@@ -274,50 +269,45 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
                             match = False
                             break
                     if match:
+                        pod_name = p["metadata"]["name"]
+                        pod_id = f"pod_{cluster_name}_{namespace}_{pod_name}"
+                        if not G.has_node(pod_id):
+                            make_node(pod_id, type="Region", label=f"{pod_name}\\n(Pod)", file_type="K8s Pod", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf1b2', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=12)
+                        
+                        G.add_edge(svc_id, pod_id, relation="selects_pod")
+                        
                         containers = p.get("spec", {}).get("containers", [])
                         for c in containers:
                             img = c.get("image")
                             if img:
-                                svc_images.add(img)
+                                img_id = f"img_{cluster_name}_{img}"
+                                if not G.has_node(img_id):
+                                    make_node(img_id, type="Environment", label=f"{img}\\n(Docker Image)", file_type="Docker Image", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Brands"', 'code': '\uf395', 'weight': '400', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                                G.add_edge(pod_id, img_id, relation="runs_image")
                                 
                         volumes = p.get("spec", {}).get("volumes", [])
                         for v in volumes:
                             if "persistentVolumeClaim" in v:
                                 claim_name = v["persistentVolumeClaim"].get("claimName")
                                 if claim_name:
-                                    svc_pvcs.add(claim_name)
+                                    pvc_id = f"pvc_{cluster_name}_{namespace}_{claim_name}"
+                                    if not G.has_node(pvc_id):
+                                        make_node(pvc_id, type="Environment", label=f"{claim_name}\\n(PVC)", file_type="PVC", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf1c0', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=15)
+                                    G.add_edge(pod_id, pvc_id, relation="mounts_pvc")
                             if "configMap" in v:
                                 cm_name = v["configMap"].get("name")
                                 if cm_name:
-                                    svc_cms.add(cm_name)
+                                    cm_id = f"cm_{cluster_name}_{namespace}_{cm_name}"
+                                    if not G.has_node(cm_id):
+                                        make_node(cm_id, type="Environment", label=f"{cm_name}\\n(ConfigMap)", file_type="ConfigMap", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf013', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                                    G.add_edge(pod_id, cm_id, relation="mounts_cm")
                             if "secret" in v:
                                 sec_name = v["secret"].get("secretName")
                                 if sec_name:
-                                    svc_secrets.add(sec_name)
-            
-            for img in svc_images:
-                img_id = f"img_{cluster_name}_{img}"
-                if not G.has_node(img_id):
-                    make_node(img_id, type="Environment", label=f"{img}\\n(Docker Image)", file_type="Docker Image", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Brands"', 'code': '\uf395', 'weight': '400', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
-                G.add_edge(svc_id, img_id, relation="runs_image")
-                
-            for pvc in svc_pvcs:
-                pvc_id = f"pvc_{cluster_name}_{namespace}_{pvc}"
-                if not G.has_node(pvc_id):
-                    make_node(pvc_id, type="Environment", label=f"{pvc}\\n(PVC)", file_type="PVC", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf1c0', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=15)
-                G.add_edge(svc_id, pvc_id, relation="mounts_pvc")
-            
-            for cm in svc_cms:
-                cm_id = f"cm_{cluster_name}_{namespace}_{cm}"
-                if not G.has_node(cm_id):
-                    make_node(cm_id, type="Environment", label=f"{cm}\\n(ConfigMap)", file_type="ConfigMap", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf013', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
-                G.add_edge(svc_id, cm_id, relation="mounts_cm")
-                
-            for sec in svc_secrets:
-                sec_id = f"sec_{cluster_name}_{namespace}_{sec}"
-                if not G.has_node(sec_id):
-                    make_node(sec_id, type="Environment", label=f"{sec}\\n(Secret)", file_type="Secret", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf084', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
-                G.add_edge(svc_id, sec_id, relation="mounts_secret")
+                                    sec_id = f"sec_{cluster_name}_{namespace}_{sec_name}"
+                                    if not G.has_node(sec_id):
+                                        make_node(sec_id, type="Environment", label=f"{sec_name}\\n(Secret)", file_type="Secret", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf084', 'weight': '900', 'color': get_ns_color(namespace)}, provider="kubernetes", namespace=namespace, size=10)
+                                    G.add_edge(pod_id, sec_id, relation="mounts_secret")
 
         for i in ingresses:
             name = i["metadata"]["name"]
