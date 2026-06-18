@@ -17,7 +17,7 @@ def parse_bunny(data_dir, G, servers_by_ip):
         else:
             main_domain = ".".join(name_parts[:-1]) # Fallback
             
-        G.add_node(main_domain, type="MainDomain", label=f"{main_domain}\\n(Main Domain)", file_type="Bunny MainDomain", source_file=f"Zone File: {filename}",
+        G.add_node(main_domain, type="MainDomain", label=f"{main_domain}\n(Main Domain)", file_type="Bunny MainDomain", source_file=f"Zone File: {filename}",
                    shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf0ac', 'weight': '900', 'color': '#76B7B2'}, provider=f"bunny_{main_domain}")
 
         domain_ips = defaultdict(list)
@@ -53,9 +53,9 @@ def parse_bunny(data_dir, G, servers_by_ip):
             is_orphaned = not has_valid_target
             if is_orphaned:
                 color = '#ff4444' # RED!
-                label = f"⚠️ {domain}\\n(ORPHANED)"
+                label = f"⚠️ {domain}\n(ORPHANED)"
             else:
-                label = f"{domain}\\n({label_ip_str})"
+                label = f"{domain}\n({label_ip_str})"
             
             G.add_node(domain, 
                        type=node_type, 
