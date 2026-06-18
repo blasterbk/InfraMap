@@ -34,39 +34,45 @@ def parse_bunny(data_dir, G, servers_by_ip):
                     if target_ip not in domain_ips[domain]:
                         domain_ips[domain].append(target_ip)
                         
-        for domain, ips in domain_ips.items():
-            is_main = (domain == main_domain)
-            node_type = "MainDomain" if is_main else "SubDomain"
-            
-            ip_str = ", ".join(ips)
-            label_ip_str = ip_str if len(ips) <= 2 else f"{ips[0]}, ... (+{len(ips)-1})"
-            
-            has_valid_target = False
-            for target_ip in ips:
-                if target_ip in servers_by_ip:
-                    linode_server = servers_by_ip[target_ip]
-                    G.add_edge(domain, linode_server, relation="routes_traffic_to")
-                    has_valid_target = True
-            
-            color = '#76B7B2' if is_main else '#59A14F'
-            
-            is_orphaned = not has_valid_target
-            if is_orphaned:
-                color = '#ff4444' # RED!
-                label = f"⚠️ {domain}\n(ORPHANED)"
+        all_ips = set()
+        for ips in domain_ips.values():
+            for ip in ips:
+                all_ips.add(ip)
+                
+        for target_ip in all_ips:
+            ip_node_id = f"ip_{target_ip}"
+            if target_ip in servers_by_ip:
+                server_id = servers_by_ip[target_ip]
+                G.add_edge(main_domain, server_id, relation="routes_to_server", color="#76B7B2")
             else:
-                label = f"{domain}\n({label_ip_str})"
+                G.add_node(ip_node_id, type="IP", label=f"{target_ip}\n(IP Address)",
+                           color="#ff4444", file_type="External IP", source_file=f"Zone: {main_domain}",
+                           shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf233', 'weight': '900', 'color': '#ff4444'},
+                           provider=f"bunny_{main_domain}")
+                G.add_edge(main_domain, ip_node_id, relation="routes_to_ip", color="#76B7B2")
+
+        for domain, ips in domain_ips.items():
+            if domain == main_domain:
+                continue
+                
+            node_type = "SubDomain"
+            color = '#59A14F'
+            label = f"{domain}\n(Sub Domain)"
             
             G.add_node(domain, 
                        type=node_type, 
-                       ip=ip_str,
                        label=label,
-                       color=color, # Override color
+                       color=color,
                        file_type=f"Bunny {node_type}",
-                       source_file=f"Target IPs: {ip_str} | Zone: {main_domain}",
+                       source_file=f"Zone: {main_domain}",
                        shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf0ac', 'weight': '900', 'color': color},
                        provider=f"bunny_{main_domain}")
             
-            if not is_main:
-                G.add_edge(domain, main_domain, relation="subdomain_of")
+            for target_ip in ips:
+                if target_ip in servers_by_ip:
+                    server_id = servers_by_ip[target_ip]
+                    G.add_edge(server_id, domain, relation="hosts_subdomain", color="#59A14F")
+                else:
+                    ip_node_id = f"ip_{target_ip}"
+                    G.add_edge(ip_node_id, domain, relation="hosts_subdomain", color="#59A14F")
 

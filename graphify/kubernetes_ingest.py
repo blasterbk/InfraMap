@@ -106,13 +106,27 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
         make_node(cluster_id, type="MainDomain", label=f"K8s Cluster\
 ({cluster_name})", file_type="K8s Cluster", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf6ff', 'weight': '900', 'color': '#06D6A0'}, provider="kubernetes", size=25)
 
+        node_to_id = {}
         # Physical Infrastructure: Kubernetes Nodes
         for n in nodes:
             n_name = n["metadata"]["name"]
-            n_id = f"node_{cluster_name}_{n_name}"
-            if not G.has_node(n_id):
-                make_node(n_id, type="Server", label=f"{n_name}\
-(Server Node)", file_type="K8s Node", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf233', 'weight': '900', 'color': '#118AB2'}, provider="kubernetes", namespace="system", size=25)
+            
+            server_id = None
+            for addr in n.get("status", {}).get("addresses", []):
+                ip = addr.get("address")
+                if ip in servers_by_ip:
+                    server_id = servers_by_ip[ip]
+                    break
+                    
+            if server_id:
+                node_to_id[n_name] = server_id
+                G.add_edge(cluster_id, server_id, relation="runs_on")
+            else:
+                n_id = f"node_{cluster_name}_{n_name}"
+                node_to_id[n_name] = n_id
+                if not G.has_node(n_id):
+                    make_node(n_id, type="Server", label=f"{n_name}\n(Server Node)", file_type="K8s Node", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf233', 'weight': '900', 'color': '#118AB2'}, provider="kubernetes", namespace="system", size=25)
+                G.add_edge(cluster_id, n_id, relation="runs_on")
 
         namespaces = set()
 
@@ -418,10 +432,16 @@ def parse_kubernetes(data_dir, G, servers_by_ip, cluster_filename=None):
 
                 node_name = p.get("spec", {}).get("nodeName")
                 if node_name:
-                    n_id = f"node_{cluster_name}_{node_name}"
-                    if not G.has_node(n_id):
-                        make_node(n_id, type="Server", label=f"{node_name}\
-(Server Node)", file_type="K8s Node", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf233', 'weight': '900', 'color': '#118AB2'}, provider="kubernetes", namespace="system", size=25)
+                    n_id = node_to_id.get(node_name)
+                    if not n_id:
+                        host_ip = p.get("status", {}).get("hostIP")
+                        if host_ip and host_ip in servers_by_ip:
+                            n_id = servers_by_ip[host_ip]
+                        else:
+                            n_id = f"node_{cluster_name}_{node_name}"
+                            if not G.has_node(n_id):
+                                make_node(n_id, type="Server", label=f"{node_name}\n(Server Node)", file_type="K8s Node", source_file="-", shape='icon', icon={'face': '"Font Awesome 6 Free"', 'code': '\uf233', 'weight': '900', 'color': '#118AB2'}, provider="kubernetes", namespace="system", size=25)
+                        node_to_id[node_name] = n_id
                     G.add_edge(pod_id, n_id, relation="scheduled_on")
 
                 image_pull_secrets = p.get("spec", {}).get("imagePullSecrets", [])
