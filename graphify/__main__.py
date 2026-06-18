@@ -4701,16 +4701,27 @@ def main() -> None:
         print(f"Merged: {len(merged2['nodes'])} nodes, {len(merged2['edges'])} edges")
 
     elif cmd == "devops":
-        # graphify devops <data_dir> [--k8s-only]
+        # graphify devops <data_dir> [--providers k8s,linode,bunny]
         from graphify.devops_ingest import build_devops_graph
         from graphify.export import to_html
         import os as _os
 
-        data_dir = sys.argv[2] if len(sys.argv) > 2 else "."
-        k8s_only = "--k8s-only" in sys.argv
+        data_dir = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith("-") else "."
+        
+        providers = []
+        if "--k8s-only" in sys.argv:
+            providers.append("kubernetes")
+            
+        for i, arg in enumerate(sys.argv):
+            if arg.startswith("--providers="):
+                providers.extend(arg.split("=", 1)[1].split(","))
+            elif arg == "--providers" and i + 1 < len(sys.argv):
+                providers.extend(sys.argv[i + 1].split(","))
+                
+        providers = list(set([p.strip().lower() for p in providers if p.strip()]))
 
         print(f"Ingesting DevOps data from {data_dir}...")
-        graphs = build_devops_graph(data_dir, k8s_only=k8s_only)
+        graphs = build_devops_graph(data_dir, providers=providers if providers else None)
         
         for name, (G, communities, community_labels) in graphs.items():
             print(f"DevOps graph '{name}' created with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges.")
